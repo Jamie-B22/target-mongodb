@@ -22,11 +22,25 @@ class MongoDbSink(BatchSink):
 
         # get connection configs
         connection_string = self.config.get("connection_string")
-        db_name = self.config.get("db_name")
+        db_name = self.config.get("db_name",self.config.get("database"))
+        config = self.config
+        #Build connection string if it is not provided in the config.
+        if not connection_string:
+            if config["srv"]:
+                connection_string = f"mongodb+srv://{config['user']}:{config['password']}@{config['host']}/{db_name}?authSource={config['auth_database']}"
+            else:
+                if "port" in config:
+                    connection_string = f"mongodb://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{db_name}?authSource={config['auth_database']}"
+                else:
+                    connection_string = f"mongodb://{config['user']}:{config['password']}@{config['host']}/{db_name}?authSource={config['auth_database']}"
+                    
+
+
+        
         # set the collection based on current stream
         collection = urllib.parse.quote(self.stream_name)
 
-        client = pymongo.MongoClient(connection_string, connectTimeoutMS=2000, retryWrites=True)
+        client = pymongo.MongoClient(connection_string, connectTimeoutMS=2000, retryWrites=True,ssl=config.get('ssl',False))
         db = client[db_name]
 
         records = context["records"]
