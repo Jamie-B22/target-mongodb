@@ -17,8 +17,8 @@ class TargetMongoDb(Target):
 
     name = "target-mongodb"
     config_jsonschema = th.PropertiesList(
-        th.Property("connection_string", th.StringType, required=True),
-        th.Property("db_name", th.StringType, required=True)
+        th.Property("connection_string", th.StringType),
+        th.Property("db_name", th.StringType)
     ).to_dict()
     default_sink_class = MongoDbSink
 
