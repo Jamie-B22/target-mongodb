@@ -13,60 +13,81 @@ from bson.objectid import ObjectId
 class MongoDbSink(BatchSink):
     """MongoDB target sink class."""
 
-    max_size = 100000
+    max_size = 1000000  # Set a smaller batch size for better scalability
 
     def process_batch(self, context: dict) -> None:
         """Write out any prepped records and return once fully written."""
-        # The SDK populates `context["records"]` automatically
-        # since we do not override `process_record()`.
-
-        # get connection configs
+        # Get connection configs
         connection_string = self.config.get("connection_string")
-        db_name = self.config.get("db_name",self.config.get("database"))
+        db_name = self.config.get("db_name", self.config.get("database"))
         config = self.config
-        #Build connection string if it is not provided in the config.
+
+        # Build connection string if not provided
         if not connection_string:
             if config["srv"]:
-                connection_string = f"mongodb+srv://{config['user']}:{config['password']}@{config['host']}/{db_name}?authSource={config['auth_database']}"
+                connection_string = (
+                    f"mongodb+srv://{config['user']}:{config['password']}@{config['host']}/{db_name}"
+                    f"?authSource={config['auth_database']}"
+                )
             else:
                 if "port" in config:
-                    connection_string = f"mongodb://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{db_name}?authSource={config['auth_database']}"
+                    connection_string = (
+                        f"mongodb://{config['user']}:{config['password']}@{config['host']}:{config['port']}/{db_name}"
+                        f"?authSource={config['auth_database']}"
+                    )
                 else:
-                    connection_string = f"mongodb://{config['user']}:{config['password']}@{config['host']}/{db_name}?authSource={config['auth_database']}"
-                    
+                    connection_string = (
+                        f"mongodb://{config['user']}:{config['password']}@{config['host']}/{db_name}"
+                        f"?authSource={config['auth_database']}"
+                    )
 
+        # Set the collection based on the current stream
+        collection_name = urllib.parse.quote(self.stream_name)
 
-        
-        # set the collection based on current stream
-        collection = urllib.parse.quote(self.stream_name)
-
-        client = pymongo.MongoClient(connection_string, connectTimeoutMS=2000, retryWrites=True,ssl=config.get('ssl',False))
+        client = pymongo.MongoClient(
+            connection_string, connectTimeoutMS=2000, retryWrites=True, ssl=config.get("ssl", False)
+        )
         db = client[db_name]
 
         records = context["records"]
 
         if len(self.key_properties) > 0:
             primary_id = self.key_properties[0]
+            bulk_operations = []
 
             for record in records:
-                find_id = record[primary_id]
+                find_id = record.get(primary_id)
 
-                # pop the key from update if primary key is _id
-                if primary_id == '_id':
+                # Handle ObjectId if the primary key is `_id`
+                if primary_id == "_id":
                     try:
                         find_id = ObjectId(find_id)
-                    except:
-                        self.logger.warn(f"Malformed id: {find_id}. Skipping this record.")
+                    except Exception as e:
+                        self.logger.warn(f"Malformed id: {find_id}. Skipping this record. Error: {e}")
                         continue
 
-                    record.pop("_id")
+                    record.pop("_id", None)
 
-                # Last parameter True is upsert which inserts a new record if it doesnt exists or replaces current if found
-                db[collection].update_one({primary_id: find_id}, {"$set": record}, True)
+                # Create an UpdateOne operation with upsert=True
+                bulk_operations.append(
+                    pymongo.UpdateOne(
+                        {primary_id: find_id},
+                        {"$set": record},
+                        upsert=True,
+                    )
+                )
+
+            if bulk_operations:
+                # Execute the bulk write operation
+                result = db[collection_name].bulk_write(bulk_operations, ordered=False)
+                self.logger.info(
+                    f"Bulk write completed: {result.modified_count} updated, {result.upserted_count} upserted."
+                )
         else:
-            db[collection].insert_many(records)
+            # If no primary key, insert all records
+            db[collection_name].insert_many(records)
 
-        self.logger.info(f"Uploaded {len(records)} records into {collection}")
+        self.logger.info(f"Uploaded {len(records)} records into {collection_name}")
 
         # Clean up records
         context["records"] = []
