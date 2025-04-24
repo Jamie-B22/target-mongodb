@@ -15,6 +15,15 @@ class MongoDbSink(BatchSink):
 
     max_size = 1000000  # Set a smaller batch size for better scalability
 
+    def _validate_and_parse(self, record: Dict) -> Dict:
+        """
+            Overrides parent class method to remove schema validation as not relevant for MongoDB
+        """
+        self._parse_timestamps_in_record(
+            record=record, schema=self.schema, treatment=self.datetime_error_treatment
+        )
+        return record
+
     def process_batch(self, context: dict) -> None:
         """Write out any prepped records and return once fully written."""
         # Get connection configs
