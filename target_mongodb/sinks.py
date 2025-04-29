@@ -13,7 +13,7 @@ from bson.objectid import ObjectId
 class MongoDbSink(BatchSink):
     """MongoDB target sink class."""
 
-    max_size = 1000000  # Set a smaller batch size for better scalability
+    max_size = 100000  # Set a smaller batch size for better scalability
 
     def _validate_and_parse(self, record: Dict) -> Dict:
         """
